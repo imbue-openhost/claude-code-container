@@ -15,7 +15,11 @@ RUN python3 -m venv /opt/venv \
 ENV PATH="/opt/venv/bin:$PATH"
 
 # Non-root user — keystrokes shouldn't run as root inside the workbench.
-RUN useradd -m -s /bin/bash -u 1000 workbench
+# The node base image already ships a uid 1000 user ("node"); rename it to
+# workbench and give it a /home/workbench so paths match the rest of the image.
+RUN usermod -l workbench -d /home/workbench -m node \
+    && groupmod -n workbench node \
+    && chsh -s /bin/bash workbench
 ENV HOME=/home/workbench
 
 WORKDIR /app
