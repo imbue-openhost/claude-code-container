@@ -1,0 +1,15 @@
+[app]
+name = "claude-workbench"
+version = "0.1.0"
+description = "Tabbed terminals preloaded with Claude Code and a cloned openhost repo, for building and debugging openhost apps."
+
+[runtime.container]
+image = "Dockerfile"
+port = 5000
+
+[routing]
+health_check = "/health"
+
+[resources]
+memory_mb = 1024
+cpu_millicores = 1000
