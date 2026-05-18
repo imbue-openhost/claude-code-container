@@ -18,6 +18,12 @@ Authentication for `claude` is whatever the user sets up inside the
 terminal — either `ANTHROPIC_API_KEY` in the environment or an interactive
 `claude login`. The workbench doesn't manage that.
 
+As a convenience, if the `secrets-v2` app is installed and `ANTHROPIC_API_KEY`
+is set there, the workbench fetches it on first PTY launch and exports it
+into every new terminal's environment. This is best-effort — if the secrets
+app isn't around the terminal still works, you just have to set the key
+yourself.
+
 ## The UI
 
 `GET /` serves a tabbed xterm.js page. Each tab opens its own WebSocket

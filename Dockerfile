@@ -11,7 +11,7 @@ RUN npm install -g @anthropic-ai/claude-code
 
 # Python deps for the server.
 RUN python3 -m venv /opt/venv \
-    && /opt/venv/bin/pip install --no-cache-dir 'quart>=0.19' 'hypercorn>=0.16'
+    && /opt/venv/bin/pip install --no-cache-dir 'quart>=0.19' 'hypercorn>=0.16' 'httpx>=0.27'
 ENV PATH="/opt/venv/bin:$PATH"
 
 # Non-root user — keystrokes shouldn't run as root inside the workbench.

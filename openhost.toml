@@ -13,3 +13,14 @@ health_check = "/health"
 [resources]
 memory_mb = 1024
 cpu_millicores = 1000
+
+# Pull ANTHROPIC_API_KEY from the secrets app if it's installed. The fetch is
+# best-effort — if secrets-v2 isn't around or the key isn't set, the terminal
+# still works and the user can `claude login` or export the key by hand.
+[[services.v2.consumes]]
+service = "github.com/imbue-openhost/openhost/services/secrets"
+shortname = "secrets"
+version = ">=0.1.0"
+grants = [
+    {key = "ANTHROPIC_API_KEY"},
+]

@@ -24,13 +24,56 @@ import termios
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import httpx
 from quart import Quart, jsonify, request, send_from_directory, websocket
 
 APP_DIR = Path(__file__).parent
 HOME = Path(os.environ.get("HOME", "/home/workbench"))
 OPENHOST_DIR = Path(os.environ.get("OPENHOST_DIR", str(HOME / "openhost")))
 
+ROUTER_URL = os.environ.get("OPENHOST_ROUTER_URL", "")
+APP_TOKEN = os.environ.get("OPENHOST_APP_TOKEN", "")
+SECRETS_SHORTNAME = "secrets"
+
 app = Quart(__name__, template_folder=str(APP_DIR / "templates"), static_folder=str(APP_DIR / "static"))
+
+# Cached ANTHROPIC_API_KEY value, fetched lazily from the secrets app on first
+# PTY launch. `None` means "not yet fetched"; "" means "tried, not available".
+_anthropic_key: str | None = None
+_anthropic_lock = asyncio.Lock()
+
+
+async def _fetch_anthropic_key() -> str:
+    """Ask the secrets-v2 app for ANTHROPIC_API_KEY. Returns "" if unavailable."""
+    if not ROUTER_URL or not APP_TOKEN:
+        return ""
+    url = f"{ROUTER_URL}/api/services/v2/call/{SECRETS_SHORTNAME}/get"
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            resp = await client.post(
+                url,
+                json={"keys": ["ANTHROPIC_API_KEY"]},
+                headers={"Authorization": f"Bearer {APP_TOKEN}"},
+            )
+        if resp.status_code != 200:
+            return ""
+        return resp.json().get("secrets", {}).get("ANTHROPIC_API_KEY", "") or ""
+    except Exception:
+        return ""
+
+
+async def _get_anthropic_key() -> str:
+    """Return the cached key, fetching once if we haven't yet (or last attempt failed)."""
+    global _anthropic_key
+    if _anthropic_key:
+        return _anthropic_key
+    async with _anthropic_lock:
+        if _anthropic_key:
+            return _anthropic_key
+        key = await _fetch_anthropic_key()
+        if key:
+            _anthropic_key = key
+        return key
 
 
 @dataclass
@@ -101,13 +144,20 @@ async def terminal_ws() -> None:
     if pending is not None:
         command = pending.command
         cwd = pending.cwd
-        extra_env = pending.env
+        extra_env = dict(pending.env)
         stdin_seed = pending.stdin_seed
     else:
         command = ["bash", "-l"]
         cwd = str(OPENHOST_DIR) if OPENHOST_DIR.exists() else str(HOME)
         extra_env = {}
         stdin_seed = ""
+
+    # Pre-populate ANTHROPIC_API_KEY from the secrets app if available and the
+    # caller hasn't already set one.
+    if "ANTHROPIC_API_KEY" not in extra_env:
+        key = await _get_anthropic_key()
+        if key:
+            extra_env["ANTHROPIC_API_KEY"] = key
 
     await _bridge_pty(command=command, cwd=cwd, extra_env=extra_env, stdin_seed=stdin_seed)
 
