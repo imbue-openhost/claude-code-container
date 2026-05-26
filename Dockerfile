@@ -14,6 +14,10 @@ RUN python3 -m venv /opt/venv \
     && /opt/venv/bin/pip install --no-cache-dir 'quart>=0.19' 'hypercorn>=0.16' 'httpx>=0.27'
 ENV PATH="/opt/venv/bin:$PATH"
 
+# uv — used to install the `oh` openhost CLI, which needs Python 3.12 (newer
+# than Debian Bookworm ships). uv manages its own Python toolchain.
+RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
+
 # Non-root user — keystrokes shouldn't run as root inside the workbench.
 # The node base image already ships a uid 1000 user ("node"); rename it to
 # workbench and give it a /home/workbench so paths match the rest of the image.
@@ -28,10 +32,18 @@ COPY templates /app/templates
 COPY static /app/static
 COPY skills /app/skills
 COPY entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh && chown -R workbench:workbench /app
+COPY bashrc /home/workbench/.bashrc
+RUN chmod +x /app/entrypoint.sh \
+    && chown -R workbench:workbench /app \
+    && chown workbench:workbench /home/workbench/.bashrc
 
 USER workbench
 WORKDIR /home/workbench
+
+# Install the `oh` openhost CLI as the workbench user. uv fetches Python 3.12
+# automatically (the CLI requires it).
+ENV PATH="/home/workbench/.local/bin:$PATH"
+RUN uv tool install "oh @ git+https://github.com/imbue-ai/openhost.git#subdirectory=compute_space_cli"
 
 EXPOSE 5000
 ENTRYPOINT ["/usr/bin/tini", "--", "/app/entrypoint.sh"]

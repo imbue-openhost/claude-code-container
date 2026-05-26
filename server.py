@@ -43,23 +43,55 @@ _anthropic_key: str | None = None
 _anthropic_lock = asyncio.Lock()
 
 
-async def _fetch_anthropic_key() -> str:
-    """Ask the secrets-v2 app for ANTHROPIC_API_KEY. Returns "" if unavailable."""
+async def _fetch_secrets(keys: list[str]) -> dict[str, str]:
+    """Ask the secrets-v2 app for the given keys. Returns {} if unavailable."""
     if not ROUTER_URL or not APP_TOKEN:
-        return ""
+        return {}
     url = f"{ROUTER_URL}/api/services/v2/call/{SECRETS_SHORTNAME}/get"
     try:
         async with httpx.AsyncClient(timeout=5) as client:
             resp = await client.post(
                 url,
-                json={"keys": ["ANTHROPIC_API_KEY"]},
+                json={"keys": keys},
                 headers={"Authorization": f"Bearer {APP_TOKEN}"},
             )
         if resp.status_code != 200:
-            return ""
-        return resp.json().get("secrets", {}).get("ANTHROPIC_API_KEY", "") or ""
+            return {}
+        return {k: v for k, v in (resp.json().get("secrets") or {}).items() if v}
     except Exception:
-        return ""
+        return {}
+
+
+async def _fetch_anthropic_key() -> str:
+    """Ask the secrets-v2 app for ANTHROPIC_API_KEY. Returns "" if unavailable."""
+    return (await _fetch_secrets(["ANTHROPIC_API_KEY"])).get("ANTHROPIC_API_KEY", "")
+
+
+async def _seed_oh_config() -> None:
+    """Best-effort: write ~/.openhost/compute_space_cli.toml from secrets.
+
+    If both OH_HOSTNAME and OH_TOKEN are available in secrets-v2, write a config
+    so the `oh` CLI is usable without `oh instance login`. If the config file
+    already exists (user configured manually), don't overwrite it.
+    """
+    cfg_path = HOME / ".openhost" / "compute_space_cli.toml"
+    if cfg_path.exists():
+        return
+    secrets_data = await _fetch_secrets(["OH_HOSTNAME", "OH_TOKEN"])
+    hostname = secrets_data.get("OH_HOSTNAME", "").strip()
+    token = secrets_data.get("OH_TOKEN", "").strip()
+    if not hostname or not token:
+        return
+    # Strip any protocol/path the user may have stored.
+    hostname = hostname.replace("https://", "").replace("http://", "").rstrip("/")
+    cfg_path.parent.mkdir(parents=True, exist_ok=True)
+    # Escape backslashes and double quotes for basic TOML string safety.
+    safe_token = token.replace("\\", "\\\\").replace('"', '\\"')
+    cfg_path.write_text(
+        f'default_instance = "{hostname}"\n\n'
+        f"[instances.\"{hostname}\"]\n"
+        f'token = "{safe_token}"\n'
+    )
 
 
 async def _get_anthropic_key() -> str:
@@ -129,7 +161,7 @@ async def create_session() -> object:
 
     sid = secrets.token_urlsafe(8)
     _pending[sid] = PendingSession(
-        command=["claude"],
+        command=["claude", "--dangerously-skip-permissions"],
         stdin_seed=seed,
         cwd=str(OPENHOST_DIR if OPENHOST_DIR.exists() else HOME),
     )
@@ -247,14 +279,20 @@ async def _bridge_pty(
         cleanup()
 
 
-def main() -> None:
+async def _serve() -> None:
     import hypercorn.asyncio
     import hypercorn.config
+
+    await _seed_oh_config()
 
     cfg = hypercorn.config.Config()
     cfg.bind = ["0.0.0.0:5000"]
     cfg.accesslog = "-"
-    asyncio.run(hypercorn.asyncio.serve(app, cfg))
+    await hypercorn.asyncio.serve(app, cfg)
+
+
+def main() -> None:
+    asyncio.run(_serve())
 
 
 if __name__ == "__main__":
