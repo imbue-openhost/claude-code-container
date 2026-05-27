@@ -28,11 +28,10 @@ ARG GLAB_VERSION=1.65.0
 RUN set -eux; \
     arch="$(dpkg --print-architecture)"; \
     case "$arch" in \
-        amd64) glab_arch=x86_64 ;; \
-        arm64) glab_arch=arm64 ;; \
+        amd64|arm64) ;; \
         *) echo "unsupported arch: $arch" >&2; exit 1 ;; \
     esac; \
-    curl -fsSL "https://gitlab.com/gitlab-org/cli/-/releases/v${GLAB_VERSION}/downloads/glab_${GLAB_VERSION}_linux_${glab_arch}.tar.gz" \
+    curl -fsSL "https://gitlab.com/gitlab-org/cli/-/releases/v${GLAB_VERSION}/downloads/glab_${GLAB_VERSION}_linux_${arch}.tar.gz" \
         -o /tmp/glab.tar.gz; \
     tar -xzf /tmp/glab.tar.gz -C /usr/local --strip-components=0 bin/glab; \
     rm /tmp/glab.tar.gz
