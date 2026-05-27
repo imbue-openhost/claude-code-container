@@ -47,15 +47,12 @@ ENV PATH="/opt/venv/bin:$PATH"
 # natively, but uv still manages the tool's isolated environment cleanly.
 RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
 
-# Non-root user — keystrokes shouldn't run as root inside the workbench.
-# Ubuntu 24.04 ships a uid 1000 user ("ubuntu"); rename it to workbench and
-# give it a /home/workbench so paths match the rest of the image.
-RUN usermod -l workbench -d /home/workbench -m ubuntu \
-    && groupmod -n workbench ubuntu \
-    && chsh -s /bin/bash workbench \
-    && echo 'workbench ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/workbench \
-    && chmod 0440 /etc/sudoers.d/workbench
-ENV HOME=/home/workbench
+# Run as root inside the container. openhost launches workbench containers
+# under rootless podman with --cap-drop=ALL and --security-opt=no-new-privileges,
+# so "root" inside is still mapped to an unprivileged host user and can't escape
+# the container — but it lets `apt-get` and friends work without sudo (which
+# no_new_privs blocks anyway).
+ENV HOME=/root
 
 WORKDIR /app
 COPY server.py /app/server.py
@@ -63,18 +60,15 @@ COPY templates /app/templates
 COPY static /app/static
 COPY skills /app/skills
 COPY entrypoint.sh /app/entrypoint.sh
-COPY bashrc /home/workbench/.bashrc
-COPY bash_profile /home/workbench/.bash_profile
-RUN chmod +x /app/entrypoint.sh \
-    && chown -R workbench:workbench /app \
-    && chown workbench:workbench /home/workbench/.bashrc /home/workbench/.bash_profile
+COPY bashrc /root/.bashrc
+COPY bash_profile /root/.bash_profile
+RUN chmod +x /app/entrypoint.sh
 
-USER workbench
-WORKDIR /home/workbench
+WORKDIR /root
 
-# Install the `oh` openhost CLI as the workbench user. uv fetches Python 3.12
-# automatically (the CLI requires it).
-ENV PATH="/home/workbench/.local/bin:$PATH"
+# Install the `oh` openhost CLI. uv fetches Python 3.12 automatically
+# (the CLI requires it).
+ENV PATH="/root/.local/bin:$PATH"
 RUN uv tool install "oh @ git+https://github.com/imbue-openhost/openhost.git#subdirectory=compute_space_cli"
 
 EXPOSE 5000

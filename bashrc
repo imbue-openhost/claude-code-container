@@ -1,9 +1,8 @@
 # ~/.bashrc for the claude-workbench user.
-
-# Source the system bashrc if present.
-if [ -f /etc/bash.bashrc ]; then
-    . /etc/bash.bashrc
-fi
+#
+# Don't source /etc/bash.bashrc here: bash auto-loads it for interactive
+# non-login shells, and /etc/profile loads it for login shells. Sourcing
+# it again from .bashrc caused Ubuntu's sudo motd to print twice.
 
 alias claude='claude --dangerously-skip-permissions'
 
