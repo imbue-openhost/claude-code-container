@@ -75,7 +75,7 @@ WORKDIR /home/workbench
 # Install the `oh` openhost CLI as the workbench user. uv fetches Python 3.12
 # automatically (the CLI requires it).
 ENV PATH="/home/workbench/.local/bin:$PATH"
-RUN uv tool install "oh @ git+https://github.com/imbue-ai/openhost.git#subdirectory=compute_space_cli"
+RUN uv tool install "oh @ git+https://github.com/imbue-openhost/openhost.git#subdirectory=compute_space_cli"
 
 EXPOSE 5000
 ENTRYPOINT ["/usr/bin/tini", "--", "/app/entrypoint.sh"]
