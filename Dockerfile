@@ -65,9 +65,10 @@ COPY static /app/static
 COPY skills /app/skills
 COPY entrypoint.sh /app/entrypoint.sh
 COPY bashrc /home/workbench/.bashrc
+COPY bash_profile /home/workbench/.bash_profile
 RUN chmod +x /app/entrypoint.sh \
     && chown -R workbench:workbench /app \
-    && chown workbench:workbench /home/workbench/.bashrc
+    && chown workbench:workbench /home/workbench/.bashrc /home/workbench/.bash_profile
 
 USER workbench
 WORKDIR /home/workbench
