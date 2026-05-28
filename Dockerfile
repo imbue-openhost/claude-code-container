@@ -56,7 +56,7 @@ ENV HOME=/root
 
 WORKDIR /app
 COPY server.py /app/server.py
-COPY debug.sh /app/debug.sh
+COPY open_workspace.sh /app/open_workspace.sh
 COPY templates /app/templates
 COPY static /app/static
 COPY skills /app/skills
