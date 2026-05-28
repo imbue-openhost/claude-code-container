@@ -7,6 +7,10 @@ Routes:
     POST /api/sessions             -> queue a prefilled Claude session; returns {id, url}
                                       body: {"prompt": "...", "context": "..."}
                                       the next WS that connects with ?session=<id> picks it up
+    GET  /debug                    -> clone a repo at a sha and drop into a terminal;
+                                      redirects to /?session=<id>
+                                      query: repo (required), sha/ref, prompt, context
+                                      meant as a "let's debug this" link on app error pages
 """
 
 from __future__ import annotations
@@ -16,6 +20,7 @@ import fcntl
 import json
 import os
 import pty
+import re
 import secrets
 import signal
 import struct
@@ -25,7 +30,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import httpx
-from quart import Quart, jsonify, request, send_from_directory, websocket
+from quart import Quart, jsonify, redirect, request, send_from_directory, websocket
 
 APP_DIR = Path(__file__).parent
 HOME = Path(os.environ.get("HOME", "/root"))
@@ -124,6 +129,44 @@ class PendingSession:
 
 _pending: dict[str, PendingSession] = {}
 
+# Restrict clone URLs to http(s)/ssh transports so a caller can't smuggle in a
+# `ext::`/`file::` transport (which would let git run arbitrary commands).
+_REPO_RE = re.compile(r"^(https?://|ssh://|git@)[^\s]+$")
+# A git ref/sha: no leading dash (would be read as a `git checkout` flag) and a
+# conservative character set.
+_REF_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
+
+# Runs in the debug terminal. All inputs arrive via env vars (never string
+# interpolation), so there's nothing to escape and no shell injection surface.
+# We deliberately don't `set -e`: if a step fails we report it and still drop
+# the user into a shell so they can poke around.
+_DEBUG_SCRIPT = r"""
+echo
+echo "[workbench] cloning $DEBUG_REPO"
+if ! git clone -- "$DEBUG_REPO" "$DEBUG_DIR"; then
+    echo "[workbench] clone failed; dropping you into a shell." >&2
+    exec bash -l
+fi
+cd "$DEBUG_DIR" || exec bash -l
+if [ -n "$DEBUG_REF" ]; then
+    echo "[workbench] checking out $DEBUG_REF"
+    git checkout "$DEBUG_REF" || echo "[workbench] checkout of $DEBUG_REF failed." >&2
+fi
+if [ -n "$DEBUG_PROMPT" ]; then
+    exec claude --dangerously-skip-permissions "$DEBUG_PROMPT"
+fi
+exec bash -l
+"""
+
+
+def _repo_dir_name(url: str) -> str:
+    """Derive a safe local directory name from a clone URL."""
+    name = url.rstrip("/").rsplit("/", 1)[-1].rsplit(":", 1)[-1]
+    if name.endswith(".git"):
+        name = name[:-4]
+    name = re.sub(r"[^A-Za-z0-9._-]", "", name)
+    return name or "repo"
+
 
 def _set_winsize(fd: int, rows: int, cols: int) -> None:
     fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
@@ -166,6 +209,46 @@ async def create_session() -> object:
         cwd=str(OPENHOST_DIR if OPENHOST_DIR.exists() else HOME),
     )
     return jsonify({"id": sid, "url": f"/?session={sid}"})
+
+
+@app.get("/debug")
+async def debug() -> object:
+    """Pre-seed a terminal that clones a repo at a given sha, then redirect to it.
+
+    Designed as a "let's debug this" link for app error pages: another openhost
+    app can point a user here with the repo + commit that produced a 500, and
+    they land in a terminal sitting in a fresh checkout (optionally with Claude
+    already started on the failure).
+    """
+    repo = (request.args.get("repo") or "").strip()
+    ref = (request.args.get("sha") or request.args.get("ref") or "").strip()
+    prompt = (request.args.get("prompt") or "").strip()
+    context = (request.args.get("context") or "").strip()
+
+    if not _REPO_RE.match(repo):
+        return jsonify({"error": "valid http(s)/ssh repo url required"}), 400
+    if ref and not _REF_RE.match(ref):
+        return jsonify({"error": "invalid sha/ref"}), 400
+
+    seed_parts: list[str] = []
+    if context:
+        seed_parts.append(f"# Context\n\n{context}")
+    if prompt:
+        seed_parts.append(prompt)
+    claude_prompt = "\n\n".join(seed_parts)
+
+    sid = secrets.token_urlsafe(8)
+    _pending[sid] = PendingSession(
+        command=["bash", "-lc", _DEBUG_SCRIPT],
+        cwd=str(HOME),
+        env={
+            "DEBUG_REPO": repo,
+            "DEBUG_DIR": _repo_dir_name(repo),
+            "DEBUG_REF": ref,
+            "DEBUG_PROMPT": claude_prompt,
+        },
+    )
+    return redirect(f"/?session={sid}")
 
 
 @app.websocket("/terminal/ws")

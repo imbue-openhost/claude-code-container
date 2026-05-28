@@ -49,6 +49,28 @@ This is intentionally minimal — the intent is that openhost error pages
 (503 from openhost or from an app) can POST request info and app logs
 here and then link the user to a pre-loaded Claude session.
 
+## "Let's debug this" link
+
+`GET /debug` is a directly-linkable version of the above, built for error
+pages: it clones a repo at a given commit and drops you into a terminal
+sitting in that checkout.
+
+```
+GET /debug?repo=<clone-url>&sha=<sha>&prompt=<text>&context=<text>
+  -> 302 redirect to /?session=<token>
+```
+
+- `repo` (required) — an `https://`, `http://`, `ssh://`, or `git@…` clone
+  URL. Other transports (e.g. `ext::`, `file://`) are rejected.
+- `sha` / `ref` (optional) — a commit, tag, or branch to check out.
+- `prompt` / `context` (optional) — if either is given, `claude` starts in
+  the checkout pre-loaded with them; otherwise you get an interactive shell.
+
+So an app that 500s can render a "let's debug this" button linking to
+`https://<workbench>/debug?repo=…&sha=<the-deployed-commit>&context=<traceback>`,
+and one click lands the user in a fresh checkout of the exact code that
+failed, optionally with Claude already on the case.
+
 ## Running locally without openhost
 
 ```
