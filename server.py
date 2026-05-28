@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import httpx
+import tomli_w
 from quart import Quart, jsonify, request, send_from_directory, websocket
 
 APP_DIR = Path(__file__).parent
@@ -85,12 +86,13 @@ async def _seed_oh_config() -> None:
     # Strip any protocol/path the user may have stored.
     hostname = hostname.replace("https://", "").replace("http://", "").rstrip("/")
     cfg_path.parent.mkdir(parents=True, exist_ok=True)
-    # Escape backslashes and double quotes for basic TOML string safety.
-    safe_token = token.replace("\\", "\\\\").replace('"', '\\"')
     cfg_path.write_text(
-        f'default_instance = "{hostname}"\n\n'
-        f"[instances.\"{hostname}\"]\n"
-        f'token = "{safe_token}"\n'
+        tomli_w.dumps(
+            {
+                "default_instance": hostname,
+                "instances": {hostname: {"token": token}},
+            }
+        )
     )
 
 

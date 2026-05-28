@@ -33,14 +33,14 @@ RUN set -eux; \
     esac; \
     curl -fsSL "https://gitlab.com/gitlab-org/cli/-/releases/v${GLAB_VERSION}/downloads/glab_${GLAB_VERSION}_linux_${arch}.tar.gz" \
         -o /tmp/glab.tar.gz; \
-    tar -xzf /tmp/glab.tar.gz -C /usr/local --strip-components=0 bin/glab; \
+    tar -xzf /tmp/glab.tar.gz -C /usr/local bin/glab; \
     rm /tmp/glab.tar.gz
 
 RUN npm install -g @anthropic-ai/claude-code
 
 # Python deps for the server.
 RUN python3 -m venv /opt/venv \
-    && /opt/venv/bin/pip install --no-cache-dir 'quart>=0.19' 'hypercorn>=0.16' 'httpx>=0.27'
+    && /opt/venv/bin/pip install --no-cache-dir 'quart>=0.19' 'hypercorn>=0.16' 'httpx>=0.27' 'tomli-w>=1.0'
 ENV PATH="/opt/venv/bin:$PATH"
 
 # uv — used to install the `oh` openhost CLI. Ubuntu 24.04 ships Python 3.12
@@ -68,6 +68,8 @@ WORKDIR /root
 
 # Install the `oh` openhost CLI. uv fetches Python 3.12 automatically
 # (the CLI requires it).
+# TODO: pin to a tag/SHA once openhost exposes a release we can resolve at
+# build time; today this tracks the default branch and is non-reproducible.
 ENV PATH="/root/.local/bin:$PATH"
 RUN uv tool install "oh @ git+https://github.com/imbue-openhost/openhost.git#subdirectory=compute_space_cli"
 
