@@ -136,77 +136,10 @@ _REPO_RE = re.compile(r"^(https?://|ssh://|git@)[^\s]+$")
 # conservative character set.
 _REF_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
 
-# Runs in the debug terminal. All inputs arrive via env vars (never string
-# interpolation), so there's nothing to escape and no shell injection surface.
-# We deliberately don't `set -e`: if a step fails we report it and still drop
-# the user into a shell so they can poke around.
-#
-# If the target dir already holds a checkout (e.g. the link was clicked before),
-# we reuse it rather than clobbering it: fetch, then — if the tree is dirty —
-# interactively ask what to do with the local changes before checking out the
-# requested ref. The prompt is a `while` loop guarded against EOF so a closed /
-# stale tab bails to a shell instead of spinning.
-_DEBUG_SCRIPT = r"""
-echo
-if [ -d "$DEBUG_DIR/.git" ]; then
-    echo "[workbench] reusing existing checkout at $DEBUG_DIR"
-    cd "$DEBUG_DIR" || exec bash -l
-    echo "[workbench] fetching latest"
-    git fetch --all --tags --prune || echo "[workbench] fetch failed; continuing with what's on disk." >&2
-    while :; do
-        before="$(git status --porcelain)"
-        [ -n "$before" ] || break
-        echo
-        echo "[workbench] this checkout has uncommitted changes:"
-        git status --short
-        printf '  [c]ommit to a wip branch / [s]tash / [d]rop / [k]eep as-is and stop here? '
-        read -r ans || { echo; echo "[workbench] no input (stale tab?); leaving changes untouched."; exec bash -l; }
-        # The tree could have changed while we waited for an answer (another tab
-        # on the same container). Don't act on a stale snapshot — re-prompt.
-        if [ "$before" != "$(git status --porcelain)" ]; then
-            echo "[workbench] working tree changed while you were deciding; re-checking."
-            continue
-        fi
-        case "$ans" in
-            c|C)
-                git checkout -b "workbench-wip-$(date +%Y%m%d-%H%M%S)" \
-                    && git add -A \
-                    && git commit -qm "workbench autosave" \
-                    && echo "[workbench] committed to $(git rev-parse --abbrev-ref HEAD)"
-                ;;
-            s|S)
-                git stash push -u -m "workbench autosave $(date +%Y%m%d-%H%M%S)" \
-                    && echo "[workbench] stashed; recover later with: git stash pop"
-                ;;
-            d|D)
-                git reset --hard && git clean -fd && echo "[workbench] dropped local changes"
-                ;;
-            k|K)
-                echo "[workbench] keeping changes; not checking out $DEBUG_REF."
-                exec bash -l
-                ;;
-            *)
-                echo "[workbench] please answer c, s, d, or k."
-                ;;
-        esac
-    done
-else
-    echo "[workbench] cloning $DEBUG_REPO"
-    if ! git clone -- "$DEBUG_REPO" "$DEBUG_DIR"; then
-        echo "[workbench] clone failed; dropping you into a shell." >&2
-        exec bash -l
-    fi
-    cd "$DEBUG_DIR" || exec bash -l
-fi
-if [ -n "$DEBUG_REF" ]; then
-    echo "[workbench] checking out $DEBUG_REF"
-    git checkout "$DEBUG_REF" || echo "[workbench] checkout of $DEBUG_REF failed." >&2
-fi
-if [ -n "$DEBUG_PROMPT" ]; then
-    exec claude --dangerously-skip-permissions "$DEBUG_PROMPT"
-fi
-exec bash -l
-"""
+# The /debug terminal runs this script (see debug.sh for what it does). It takes
+# all its inputs from env vars set on the PendingSession, so there's nothing to
+# interpolate here and no shell injection surface.
+_DEBUG_SCRIPT = APP_DIR / "debug.sh"
 
 
 def _repo_dir_name(url: str) -> str:
@@ -289,7 +222,7 @@ async def debug() -> object:
 
     sid = secrets.token_urlsafe(8)
     _pending[sid] = PendingSession(
-        command=["bash", "-lc", _DEBUG_SCRIPT],
+        command=["bash", "-l", str(_DEBUG_SCRIPT)],
         cwd=str(HOME),
         env={
             "DEBUG_REPO": repo,
