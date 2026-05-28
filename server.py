@@ -153,12 +153,20 @@ if [ -d "$DEBUG_DIR/.git" ]; then
     cd "$DEBUG_DIR" || exec bash -l
     echo "[workbench] fetching latest"
     git fetch --all --tags --prune || echo "[workbench] fetch failed; continuing with what's on disk." >&2
-    while [ -n "$(git status --porcelain)" ]; do
+    while :; do
+        before="$(git status --porcelain)"
+        [ -n "$before" ] || break
         echo
         echo "[workbench] this checkout has uncommitted changes:"
         git status --short
         printf '  [c]ommit to a wip branch / [s]tash / [d]rop / [k]eep as-is and stop here? '
         read -r ans || { echo; echo "[workbench] no input (stale tab?); leaving changes untouched."; exec bash -l; }
+        # The tree could have changed while we waited for an answer (another tab
+        # on the same container). Don't act on a stale snapshot — re-prompt.
+        if [ "$before" != "$(git status --porcelain)" ]; then
+            echo "[workbench] working tree changed while you were deciding; re-checking."
+            continue
+        fi
         case "$ans" in
             c|C)
                 git checkout -b "workbench-wip-$(date +%Y%m%d-%H%M%S)" \
